@@ -1,4 +1,4 @@
-defmodule XturnSockets.MixProject do
+defmodule XTurn.Sockets.MixProject do
   use Mix.Project
 
   def project do
@@ -19,8 +19,7 @@ defmodule XturnSockets.MixProject do
 
   defp deps do
     [
-      {:xmedialib, git: "https://github.com/xirsys/xmedialib"},
-      {:xturn_sockets, git: "https://github.com/xirsys/xturn-sockets"}
+      {:xmedialib, git: "https://github.com/xirsys/xmedialib"}
     ]
   end
 end
