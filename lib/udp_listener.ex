@@ -100,18 +100,18 @@ defmodule Xirsys.Sockets.Listener.UDP do
     Logger.debug("UDP called #{inspect(byte_size(msg))} bytes")
     {:ok, {_, tport}} = Socket.sockname(state.socket)
 
-    spawn(state.callback, :process_message, [
-      %Conn{
-        message: msg,
-        listener: self(),
-        client_socket: state.socket,
-        client_ip: fip,
-        client_port: fport,
-        server_ip: Socket.server_ip(),
-        server_port: tport
-      }
-    ])
+    data = %Conn{
+      message: msg,
+      listener: self(),
+      client_socket: state.socket,
+      client_ip: fip,
+      client_port: fport,
+      server_ip: Socket.server_ip(),
+      server_port: tport
+    }
 
+    spawn(state.callback, :process_message, [data])
+    Socket.send_to_client_hooks(data)
     Socket.setopts(state.socket)
     :erlang.process_flag(:priority, :high)
     {:noreply, state}
