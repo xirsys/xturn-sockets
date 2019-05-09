@@ -148,7 +148,7 @@ defmodule Xirsys.Sockets.Socket do
   """
   def send_to_peer_hooks(data) do
     peer_hooks()
-    |> Enum.each(&GenServer.cast(&1, {:process_message, data}))
+    |> Enum.each(&GenServer.cast(&1, {:process_message, :peer, data}))
   end
 
   @doc """
@@ -156,7 +156,7 @@ defmodule Xirsys.Sockets.Socket do
   """
   def send_to_client_hooks(data) do
     client_hooks()
-    |> Enum.each(&GenServer.cast(&1, {:process_message, data}))
+    |> Enum.each(&GenServer.cast(&1, {:process_message, :client, data}))
   end
 
   @doc """
