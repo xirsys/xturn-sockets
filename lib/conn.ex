@@ -32,7 +32,6 @@ defmodule Xirsys.Sockets.Conn do
   alias XMediaLib.Stun
 
   @vsn "0"
-  @realm "xirsys.com"
   @software "xirsys-turnserver"
   @nonce "5543438859252a7c"
 
@@ -114,7 +113,7 @@ defmodule Xirsys.Sockets.Conn do
     new_attrs = %{
       error_code: {err_no, err_msg},
       nonce: @nonce,
-      realm: @realm,
+      realm: realm(),
       software: @software
     }
 
@@ -130,6 +129,13 @@ defmodule Xirsys.Sockets.Conn do
       client_socket ->
         Socket.send(client_socket, Stun.encode(turn), conn.client_ip, conn.client_port)
         conn
+    end
+  end
+
+  defp realm() do
+    case Application.get_env(:xturn, :realm) do
+      v when is_binary(v) -> v
+      _ -> "xirsys.com"
     end
   end
 end
