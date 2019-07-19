@@ -33,4 +33,11 @@ defmodule Xirsys.Sockets.Response do
             attrs: nil,
             err_no: nil,
             message: nil
+
+  @type t :: {
+    class :: atom(),
+    attrs :: map(),
+    err_no :: term(),
+    message :: String.t()
+  }
 end

@@ -24,7 +24,7 @@
 
 defmodule Xirsys.Sockets.Conn do
   @moduledoc """
-  TURN connection object
+  Socket connection object for TURN
   """
   require Logger
 
@@ -33,7 +33,22 @@ defmodule Xirsys.Sockets.Conn do
 
   @vsn "0"
   @software "xirsys-turnserver"
-  @nonce "5543438859252a7c"
+  @nonce "5543438859252a7c" # fixed, for now.
+
+  @type t :: {
+    listener :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
+    message :: binary(),
+    decoded_message :: Stun.t(),
+    client_socket :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
+    client_ip :: tuple(),
+    client_port :: integer(),
+    server_ip :: tuple(),
+    server_port :: integer(),
+    is_control :: boolean(),
+    force_auth :: boolean(),
+    response :: Response.t(),
+    halt :: boolean()
+  }
 
   defstruct listener: nil,
             message: nil,
@@ -48,6 +63,11 @@ defmodule Xirsys.Sockets.Conn do
             response: nil,
             halt: nil
 
+  @doc """
+  Flags a connection object as halted, so it
+  shouldn't be processed any further
+  """
+  @spec halt(Conn.t()) :: Conn.t()
   def halt(%Conn{} = conn),
     do: %Conn{conn | halt: true}
 
@@ -87,6 +107,9 @@ defmodule Xirsys.Sockets.Conn do
     v
   end
 
+  @doc """
+  Adjust Conn struct ready for response to end user.
+  """
   @spec build_response(%Conn{}, atom() | integer(), binary() | any()) :: %Conn{}
   defp build_response(%Conn{decoded_message: %Stun{} = turn} = conn, class, attrs)
        when is_atom(class) do
@@ -120,6 +143,9 @@ defmodule Xirsys.Sockets.Conn do
     %Conn{conn | decoded_message: %Stun{turn | class: :error, attrs: new_attrs}}
   end
 
+  @doc """
+  Encode Conn object and send to end user.
+  """
   @spec respond(%Conn{}) :: %Conn{}
   defp respond(%Conn{decoded_message: %Stun{} = turn} = conn) do
     case conn.client_socket do
