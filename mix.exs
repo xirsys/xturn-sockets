@@ -29,7 +29,7 @@ defmodule Xirsys.XTurn.Sockets.MixProject do
   defp deps do
     [
       {:ex_doc, ">= 0.0.0", only: :dev},
-      {:xmedialib, "~> 0.1.0"}
+      {:xmedialib, "~> 0.1.1"}
     ]
   end
 
