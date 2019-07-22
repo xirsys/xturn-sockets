@@ -107,9 +107,7 @@ defmodule Xirsys.Sockets.Conn do
     v
   end
 
-  @doc """
-  Adjust Conn struct ready for response to end user.
-  """
+  # Adjust Conn struct ready for response to end user.
   @spec build_response(%Conn{}, atom() | integer(), binary() | any()) :: %Conn{}
   defp build_response(%Conn{decoded_message: %Stun{} = turn} = conn, class, attrs)
        when is_atom(class) do
@@ -143,9 +141,7 @@ defmodule Xirsys.Sockets.Conn do
     %Conn{conn | decoded_message: %Stun{turn | class: :error, attrs: new_attrs}}
   end
 
-  @doc """
-  Encode Conn object and send to end user.
-  """
+  # Encode Conn object and send to end user.
   @spec respond(%Conn{}) :: %Conn{}
   defp respond(%Conn{decoded_message: %Stun{} = turn} = conn) do
     case conn.client_socket do
@@ -153,6 +149,7 @@ defmodule Xirsys.Sockets.Conn do
         conn
 
       client_socket ->
+        turn = %Stun{turn | fingerprint: true} # force fingerprint
         Socket.send(client_socket, Stun.encode(turn), conn.client_ip, conn.client_port)
         conn
     end

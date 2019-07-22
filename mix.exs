@@ -4,7 +4,7 @@ defmodule Xirsys.XTurn.Sockets.MixProject do
   def project do
     [
       app: :xturn_sockets,
-      version: "0.1.0",
+      version: "0.1.1",
       elixir: "~> 1.7",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
