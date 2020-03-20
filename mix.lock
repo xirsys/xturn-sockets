@@ -6,5 +6,6 @@
   "makeup_elixir": {:hex, :makeup_elixir, "0.14.0", "cf8b7c66ad1cff4c14679698d532f0b5d45a3968ffbcbfd590339cb57742f1ae", [:mix], [{:makeup, "~> 1.0", [hex: :makeup, repo: "hexpm", optional: false]}], "hexpm"},
   "nimble_parsec": {:hex, :nimble_parsec, "0.5.0", "90e2eca3d0266e5c53f8fbe0079694740b9c91b6747f2b7e3c5d21966bba8300", [:mix], [], "hexpm"},
   "skerl": {:git, "https://github.com/xirsys/skerl.git", "406a431b0140305a739457bea067d6e4d2852681", []},
-  "xmedialib": {:hex, :xmedialib, "0.1.0", "5c1e1857ec54ff0a25a7648faea65cf3e40a1e659b514f4841be0fc96845a65a", [:make, :mix], [{:elixir_make, "~> 0.4", [hex: :elixir_make, repo: "hexpm", optional: false]}], "hexpm"},
+  "skex": {:hex, :skex, "0.1.0", "78d16c6ff550c3f2bbebd2238f449f40e0065d10d799da1dc0e8956e8285c3c7", [:mix], [], "hexpm"},
+  "xmedialib": {:hex, :xmedialib, "0.1.1", "a69e1b662b0a18f8b32a3664e55b51c1631a02174060aef0d26c1df325b2e393", [:make, :mix], [{:elixir_make, "~> 0.4", [hex: :elixir_make, repo: "hexpm", optional: false]}, {:skex, "~> 0.1.0", [hex: :skex, repo: "hexpm", optional: false]}], "hexpm"},
 }

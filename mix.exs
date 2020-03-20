@@ -4,12 +4,12 @@ defmodule Xirsys.XTurn.Sockets.MixProject do
   def project do
     [
       app: :xturn_sockets,
-      version: "0.1.1",
+      version: "1.0.0",
       elixir: "~> 1.7",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: "Sockets library for the XTurn server.",
+      description: "Flexible sockets library (used by the XTurn server).",
       source_url: "https://github.com/xirsys/xturn-sockets",
       homepage_url: "https://xturn.me",
       package: package(),
@@ -28,8 +28,7 @@ defmodule Xirsys.XTurn.Sockets.MixProject do
 
   defp deps do
     [
-      {:ex_doc, ">= 0.0.0", only: :dev},
-      {:xmedialib, "~> 0.1.1"}
+      {:ex_doc, ">= 0.0.0", only: :dev}
     ]
   end
 

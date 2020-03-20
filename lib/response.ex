@@ -1,6 +1,6 @@
 ### ----------------------------------------------------------------------
 ###
-### Copyright (c) 2013 - 2018 Lee Sylvester and Xirsys LLC <experts@xirsys.com>
+### Copyright (c) 2013 - 2020 Jahred Love and Xirsys LLC <experts@xirsys.com>
 ###
 ### All rights reserved.
 ###
@@ -27,17 +27,15 @@ defmodule Xirsys.Sockets.Response do
   TURN connection object
   """
 
-  @vsn "0"
-
   defstruct class: nil,
             attrs: nil,
             err_no: nil,
             message: nil
 
   @type t :: {
-    class :: atom(),
-    attrs :: map(),
-    err_no :: term(),
-    message :: String.t()
-  }
+          class :: atom(),
+          attrs :: map(),
+          err_no :: term(),
+          message :: String.t()
+        }
 end

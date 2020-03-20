@@ -1,6 +1,6 @@
 ### ----------------------------------------------------------------------
 ###
-### Copyright (c) 2013 - 2018 Lee Sylvester and Xirsys LLC <experts@xirsys.com>
+### Copyright (c) 2013 - 2020 Jahred Love and Xirsys LLC <experts@xirsys.com>
 ###
 ### All rights reserved.
 ###
@@ -29,26 +29,21 @@ defmodule Xirsys.Sockets.Conn do
   require Logger
 
   alias Xirsys.Sockets.{Conn, Response, Socket}
-  alias XMediaLib.Stun
-
-  @vsn "0"
-  @software "xirsys-turnserver"
-  @nonce "5543438859252a7c" # fixed, for now.
 
   @type t :: {
-    listener :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
-    message :: binary(),
-    decoded_message :: Stun.t(),
-    client_socket :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
-    client_ip :: tuple(),
-    client_port :: integer(),
-    server_ip :: tuple(),
-    server_port :: integer(),
-    is_control :: boolean(),
-    force_auth :: boolean(),
-    response :: Response.t(),
-    halt :: boolean()
-  }
+          listener :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
+          message :: binary(),
+          decoded_message :: any(),
+          client_socket :: :gen_tcp.socket() | :gen_udp.socket() | :ssl.sslsocket(),
+          client_ip :: tuple(),
+          client_port :: integer(),
+          server_ip :: tuple(),
+          server_port :: integer(),
+          is_control :: boolean(),
+          force_auth :: boolean(),
+          response :: Response.t(),
+          halt :: boolean()
+        }
 
   defstruct listener: nil,
             message: nil,
@@ -81,84 +76,17 @@ defmodule Xirsys.Sockets.Conn do
     do: %Conn{conn | response: %Response{err_no: err, message: msg}} |> Conn.halt()
 
   @doc """
-  If a response message has been set, then we must notify the client according
-  to the STUN and TURN specifications.
+  If a response message has been set, then we must notify the client accordingly
   """
   @spec send(%Conn{}) :: %Conn{}
-  def send(%Conn{response: %Response{err_no: err, message: msg}} = conn) when is_integer(err) do
-    conn
-    |> build_response(err, msg)
-    |> respond()
-  end
-
-  def send(%Conn{response: %Response{class: cls, attrs: attrs}} = conn) when is_atom(cls) do
-    conn
-    |> build_response(cls, attrs)
-    |> respond()
-  end
-
-  def send(%Conn{} = conn) do
-    Logger.info("SEND: #{inspect(conn)}")
-    conn
-  end
-
-  def send(v) do
-    Logger.info("SEND: #{inspect(v)}")
-    v
-  end
-
-  # Adjust Conn struct ready for response to end user.
-  @spec build_response(%Conn{}, atom() | integer(), binary() | any()) :: %Conn{}
-  defp build_response(%Conn{decoded_message: %Stun{} = turn} = conn, class, attrs)
-       when is_atom(class) do
-    new_attrs =
-      cond do
-        is_map(attrs) ->
-          Map.put(attrs, :software, @software)
-
-        true ->
-          %{software: @software}
-      end
-
-    fingerprint = turn.integrity
-    Logger.info("#{inspect(new_attrs)}")
-
-    %Conn{
-      conn
-      | decoded_message: %Stun{turn | class: class, fingerprint: fingerprint, attrs: new_attrs}
-    }
-  end
-
-  defp build_response(%Conn{decoded_message: %Stun{} = turn} = conn, err_no, err_msg)
-       when is_integer(err_no) do
-    new_attrs = %{
-      error_code: {err_no, err_msg},
-      nonce: @nonce,
-      realm: realm(),
-      software: @software
-    }
-
-    %Conn{conn | decoded_message: %Stun{turn | class: :error, attrs: new_attrs}}
-  end
-
-  # Encode Conn object and send to end user.
-  @spec respond(%Conn{}) :: %Conn{}
-  defp respond(%Conn{decoded_message: %Stun{} = turn} = conn) do
+  def send(%Conn{message: msg} = conn) when not is_nil(msg) do
     case conn.client_socket do
       nil ->
         conn
 
       client_socket ->
-        turn = %Stun{turn | fingerprint: true} # force fingerprint
-        Socket.send(client_socket, Stun.encode(turn), conn.client_ip, conn.client_port)
+        Socket.send(client_socket, msg, conn.client_ip, conn.client_port)
         conn
-    end
-  end
-
-  defp realm() do
-    case Application.get_env(:xturn, :realm) do
-      v when is_binary(v) -> v
-      _ -> "xirsys.com"
     end
   end
 end
