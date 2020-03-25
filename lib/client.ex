@@ -1,6 +1,6 @@
 ### ----------------------------------------------------------------------
 ###
-### Copyright (c) 2013 - 2018 Lee Sylvester and Xirsys LLC <experts@xirsys.com>
+### Copyright (c) 2013 - 2020 Jahred Love and Xirsys LLC <experts@xirsys.com>
 ###
 ### All rights reserved.
 ###
@@ -24,20 +24,22 @@
 
 defmodule Xirsys.Sockets.Client do
   @moduledoc """
-  TCP protocol socket client for STUN connections
+  TCP protocol socket client
   """
   use GenServer
   require Logger
-  @vsn "0"
 
-  alias Xirsys.Sockets.Socket
+  alias Xirsys.Sockets.{Conn, Socket}
 
   #####
   # External API
 
+  @type callback() :: (pid(), any(), binary(), binary() -> :ok)
+
   @doc """
   Standard OTP module startup
   """
+  @spec start_link(pid(), callback(), boolean()) :: :ok
   def start_link(socket, callback, ssl) do
     GenServer.start_link(__MODULE__, [socket, callback, ssl])
   end
@@ -56,7 +58,7 @@ defmodule Xirsys.Sockets.Client do
        list_socket: socket,
        cli_socket: nil,
        addr: nil,
-       turn_msg_buffer: <<>>,
+       buffer: <<>>,
        ssl: ssl
      }, 0}
   end
@@ -110,19 +112,40 @@ defmodule Xirsys.Sockets.Client do
   end
 
   @doc """
-  Message handler for incoming STUN packets
+  Message handler for incoming packets
   """
-  def handle_info({_, _client, data}, %{cli_socket: socket} = state) do
+  def handle_info(
+        {_, _client, data},
+        %{cli_socket: socket, addr: {{fip, fport}, {_, tport}}, buffer: buffer} = state
+      ) do
     Logger.debug("handle_info tcp")
 
     with {:ok, ip_port} <- Socket.peername(socket) do
       Logger.debug("TCP called from #{inspect(ip_port)} with #{inspect(byte_size(data))} BYTES")
 
-      new_buffer =
-        Socket.process_buffer(socket, data, state.turn_msg_buffer, state.addr, state.callback)
+      buffer =
+        case state.callback.process_buffer(<<buffer::binary, data::binary>>) do
+          {nil, buffer} ->
+            buffer
+
+          {packet, buffer} ->
+            conn = %Conn{
+              message: packet,
+              listener: self(),
+              client_socket: socket,
+              client_ip: fip,
+              client_port: fport,
+              server_ip: Socket.server_ip(),
+              server_port: tport
+            }
+
+            state.callback.dispatch(conn)
+            Socket.send_to_client_hooks(conn)
+            buffer
+        end
 
       Socket.setopts(socket)
-      {:noreply, %{state | :turn_msg_buffer => new_buffer}}
+      {:noreply, %{state | :buffer => buffer}}
     end
   end
 

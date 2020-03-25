@@ -1,6 +1,6 @@
 ### ----------------------------------------------------------------------
 ###
-### Copyright (c) 2013 - 2018 Lee Sylvester and Xirsys LLC <experts@xirsys.com>
+### Copyright (c) 2013 - 2020 Jahred Love and Xirsys LLC <experts@xirsys.com>
 ###
 ### All rights reserved.
 ###
@@ -24,13 +24,12 @@
 
 defmodule Xirsys.Sockets.Listener.TCP do
   @moduledoc """
-  TCP protocol socket listener for STUN connections. Dispatches to TCP
+  TCP protocol socket listener. Dispatches to TCP
   clients once listener socket has been set up.
   """
   use GenServer
   require Logger
   alias Xirsys.Sockets.Socket
-  @vsn "0"
 
   @buf_size 1024 * 1024 * 16
   @opts [

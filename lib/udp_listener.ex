@@ -1,6 +1,6 @@
 ### ----------------------------------------------------------------------
 ###
-### Copyright (c) 2013 - 2018 Lee Sylvester and Xirsys LLC <experts@xirsys.com>
+### Copyright (c) 2013 - 2020 Jahred Love and Xirsys LLC <experts@xirsys.com>
 ###
 ### All rights reserved.
 ###
@@ -24,11 +24,10 @@
 
 defmodule Xirsys.Sockets.Listener.UDP do
   @moduledoc """
-  UDP protocol socket handler for STUN connections
+  UDP protocol socket handler
   """
   use GenServer
   require Logger
-  @vsn "0"
 
   @buf_size 1024 * 1024 * 1024
   @opts [active: false, buffer: @buf_size, recbuf: @buf_size, sndbuf: @buf_size]
@@ -94,14 +93,16 @@ defmodule Xirsys.Sockets.Listener.UDP do
   end
 
   @doc """
-  Message handler for incoming UDP STUN packets
+  Message handler for incoming UDP packets
   """
   def handle_info({:udp, _fd, fip, fport, msg}, state) do
     Logger.debug("UDP called #{inspect(byte_size(msg))} bytes")
     {:ok, {_, tport}} = Socket.sockname(state.socket)
 
-    data = %Conn{
-      message: msg,
+    {packet, _} = state.callback.process_buffer(msg)
+
+    conn = %Conn{
+      message: packet,
       listener: self(),
       client_socket: state.socket,
       client_ip: fip,
@@ -110,8 +111,9 @@ defmodule Xirsys.Sockets.Listener.UDP do
       server_port: tport
     }
 
-    spawn(state.callback, :process_message, [data])
-    Socket.send_to_client_hooks(data)
+    spawn(state.callback, :process_buffer, [packet])
+    state.callback.dispatch(conn)
+    Socket.send_to_client_hooks(conn)
     Socket.setopts(state.socket)
     :erlang.process_flag(:priority, :high)
     {:noreply, state}
