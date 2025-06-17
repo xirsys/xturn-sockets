@@ -1,6 +1,52 @@
 # This file is responsible for configuring your application
-# and its dependencies with the aid of the Mix.Config module.
-use Mix.Config
+# and its dependencies with the aid of the Config module.
+import Config
+
+# TURN Server Socket Configuration
+config :xturn_sockets,
+  # Connection Management
+  connection_timeout: 30_000,  # 30 seconds
+  ssl_handshake_timeout: 10_000,  # 10 seconds
+  max_connections_per_ip: 100,
+  max_tcp_connections: 1000,
+  max_sctp_connections: 1000,
+
+  # Rate Limiting (for DDoS protection)
+  rate_limit_enabled: true,
+  rate_limit_window: 60_000,  # 1 minute
+  max_requests_per_window: 1000,
+
+  # Buffer Sizes (optimized for media relay)
+  buffer_size: 256 * 1024,  # 256KB default
+  large_buffer_size: 1024 * 1024,  # 1MB for high-bandwidth
+
+  # Security Settings
+  ssl_options: [
+    {:versions, [:'tlsv1.2', :'tlsv1.3']},
+    {:secure_renegotiate, true},
+    {:reuse_sessions, false},
+    {:honor_cipher_order, true},
+    {:fail_if_no_peer_cert, false},  # TURN allows anonymous clients
+    {:verify, :verify_none}  # TURN handles verification at app level
+  ],
+
+  # SCTP-specific Settings
+  sctp_nodelay: true,
+  sctp_autoclose: 0,  # Disable auto-close for persistent connections
+  sctp_maxseg: 1400,  # Maximum segment size
+  sctp_streams: %{
+    num_ostreams: 10,    # Number of outbound streams
+    max_instreams: 10,   # Maximum inbound streams
+    max_attempts: 4,     # Connection attempts
+    max_init_timeo: 30_000  # Initialization timeout
+  },
+
+  # Monitoring & Telemetry
+  telemetry_enabled: true,
+  connection_cleanup_enabled: true,
+
+  # Logging
+  log_level: :info
 
 # This configuration is loaded before any dependency and is restricted
 # to this project. If another project depends on this project, this
