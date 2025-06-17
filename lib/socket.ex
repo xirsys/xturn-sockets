@@ -24,7 +24,7 @@
 
 defmodule Xirsys.Sockets.Socket do
   @moduledoc """
-  Socket protocol helpers
+  Socket protocol helpers optimized for TURN server usage
   """
   require Logger
 
@@ -35,7 +35,30 @@ defmodule Xirsys.Sockets.Socket do
           sock :: port()
         }
 
+  # TURN server specific configurations
+  @connection_timeout 30_000  # 30 seconds for TURN connections
+  @ssl_handshake_timeout 10_000  # 10 seconds for SSL handshake
+  @max_connections_per_ip 100  # Reasonable limit for TURN clients
+  @rate_limit_window 60_000  # 1 minute window
+  @max_requests_per_window 1000  # Max requests per IP per minute
+
+  # Enhanced buffer sizes for media relay
+  @default_buffer_size 256 * 1024  # 256KB for better media performance
+
   @setopts_default [{:active, :once}, :binary]
+
+  @doc """
+  Returns TURN server configuration values
+  """
+  def get_config(key, default \\ nil) do
+    Application.get_env(:xturn_sockets, key,
+      Application.get_env(:xturn, key, default))
+  end
+
+  def connection_timeout(), do: get_config(:connection_timeout, @connection_timeout)
+  def ssl_handshake_timeout(), do: get_config(:ssl_handshake_timeout, @ssl_handshake_timeout)
+  def max_connections_per_ip(), do: get_config(:max_connections_per_ip, @max_connections_per_ip)
+  def rate_limit_enabled?(), do: get_config(:rate_limit_enabled, true)
 
   @doc """
   Returns the server ip from config for packet use
@@ -74,76 +97,187 @@ defmodule Xirsys.Sockets.Socket do
     do: Application.get_env(:xturn, :server_local_ip, {0, 0, 0, 0})
 
   @doc """
-  Opens a new port for UDP TURN transport
+  Enhanced rate limiting check for TURN server protection
+  """
+  @spec check_rate_limit(tuple()) :: :ok | {:error, :rate_limited}
+  def check_rate_limit(client_ip) do
+    if rate_limit_enabled?() do
+      case :ets.whereis(:turn_rate_limits) do
+        :undefined ->
+          # Create ETS table if it doesn't exist
+          :ets.new(:turn_rate_limits, [:named_table, :public, {:write_concurrency, true}])
+          :ok
+        _ ->
+          now = System.monotonic_time(:millisecond)
+          window_start = now - @rate_limit_window
+
+          # Clean old entries and count current requests
+          case :ets.lookup(:turn_rate_limits, client_ip) do
+            [{^client_ip, timestamps}] ->
+              recent_timestamps = Enum.filter(timestamps, &(&1 > window_start))
+
+              if length(recent_timestamps) >= @max_requests_per_window do
+                {:error, :rate_limited}
+              else
+                :ets.insert(:turn_rate_limits, {client_ip, [now | recent_timestamps]})
+                :ok
+              end
+            [] ->
+              :ets.insert(:turn_rate_limits, {client_ip, [now]})
+              :ok
+          end
+      end
+    else
+      :ok
+    end
+  end
+
+  @doc """
+  Opens a new port for UDP TURN transport with enhanced options
   """
   @spec open_port(tuple(), atom(), list()) :: {:ok, t()} | {:error, atom()}
   def open_port({_, _, _, _} = sip, policy, opts) do
-    # [{:buffer, 1024*1024*1024}, {:recbuf, 1024*1024*1024}, {:sndbuf, 1024*1024*1024}, {:exit_on_close, true}, {:keepalive, true}, {:nodelay, true}, {:packet, :raw}]
+    buffer_size = get_config(:buffer_size, @default_buffer_size)
+
     udp_options =
       [
         {:ip, sip},
         {:active, :once},
-        {:buffer, 1024 * 1024 * 1024},
-        {:recbuf, 1024 * 1024 * 1024},
-        {:sndbuf, 1024 * 1024 * 1024},
+        {:buffer, buffer_size},
+        {:recbuf, buffer_size},
+        {:sndbuf, buffer_size},
+        {:reuseaddr, true},  # Important for TURN server restarts
         :binary
       ] ++ opts
 
-    open_free_udp_port(policy, udp_options)
+    case open_free_udp_port(policy, udp_options) do
+      {:ok, _socket} = result ->
+        emit_telemetry(:socket_opened, %{protocol: :udp}, %{ip: sip})
+        result
+      {:error, reason} = error ->
+        emit_telemetry(:socket_error, %{protocol: :udp, error: reason}, %{ip: sip})
+        error
+    end
   end
 
   @doc """
-  Performs the SSL/TLS/DTLS server-side handshake if a secure
-  socket, otherwise simply accepts an incoming connection request
-  on a listening socket.
+  Enhanced handshake with timeout and better error handling
   """
   @spec handshake(%__MODULE__{}) :: {:ok, %__MODULE__{}} | {:error, any()}
   def handshake(%__MODULE__{type: :tcp, sock: socket}) do
-    with {:ok, cli_socket} <- :gen_tcp.accept(socket) do
-      {:ok, %__MODULE__{type: :tcp, sock: cli_socket}}
+    case :gen_tcp.accept(socket, connection_timeout()) do
+      {:ok, cli_socket} ->
+        emit_telemetry(:connection_accepted, %{protocol: :tcp}, %{})
+        {:ok, %__MODULE__{type: :tcp, sock: cli_socket}}
+      {:error, :timeout} ->
+        Logger.warning("TCP accept timeout")
+        {:error, :accept_timeout}
+      {:error, reason} = error ->
+        Logger.warning("TCP accept failed: #{inspect(reason)}")
+        error
     end
   end
 
-  def handshake(%__MODULE__{type: type, sock: socket}) do
-    with {:ok, cli_socket} <- :ssl.transport_accept(socket),
-         {:ok, cli_socket} <- :ssl.handshake(cli_socket) do
+  def handshake(%__MODULE__{type: type, sock: socket}) when type in [:tls, :dtls] do
+    timeout = ssl_handshake_timeout()
+
+    with {:ok, cli_socket} <- :ssl.transport_accept(socket, timeout),
+         {:ok, cli_socket} <- :ssl.handshake(cli_socket, timeout) do
+      emit_telemetry(:ssl_handshake_success, %{protocol: type}, %{})
       {:ok, %__MODULE__{type: type, sock: cli_socket}}
+    else
+      {:error, :timeout} ->
+        Logger.warning("#{type} handshake timeout")
+        emit_telemetry(:ssl_handshake_timeout, %{protocol: type}, %{})
+        {:error, :ssl_handshake_timeout}
+      {:error, reason} = error ->
+        Logger.warning("#{type} handshake failed: #{inspect(reason)}")
+        emit_telemetry(:ssl_handshake_error, %{protocol: type, error: reason}, %{})
+        error
     end
   end
 
   @doc """
-  Sends a message over an open udp socket port
+  Sends a message over an open socket with enhanced error handling
   """
   @spec send(%__MODULE__{}, binary(), tuple() | nil, integer() | nil) ::
           :ok | {:error, term()} | no_return()
   def send(socket, msg, ip \\ nil, port \\ nil)
 
-  def send(%__MODULE__{type: :udp, sock: socket}, msg, ip, port),
-    do: :gen_udp.send(socket, ip, port, msg)
+  def send(%__MODULE__{type: :udp, sock: socket}, msg, ip, port) do
+    case :gen_udp.send(socket, ip, port, msg) do
+      :ok ->
+        emit_telemetry(:message_sent, %{protocol: :udp, bytes: byte_size(msg)}, %{ip: ip, port: port})
+        :ok
+      {:error, reason} = error ->
+        emit_telemetry(:send_error, %{protocol: :udp, error: reason}, %{ip: ip, port: port})
+        Logger.warning("UDP send failed: #{inspect(reason)}")
+        error
+    end
+  end
 
-  def send(%__MODULE__{type: :tcp, sock: socket}, msg, _, _),
-    do: :gen_tcp.send(socket, msg)
+  def send(%__MODULE__{type: :tcp, sock: socket}, msg, _, _) do
+    case :gen_tcp.send(socket, msg) do
+      :ok ->
+        emit_telemetry(:message_sent, %{protocol: :tcp, bytes: byte_size(msg)}, %{})
+        :ok
+      {:error, reason} = error ->
+        emit_telemetry(:send_error, %{protocol: :tcp, error: reason}, %{})
+        Logger.warning("TCP send failed: #{inspect(reason)}")
+        error
+    end
+  end
 
-  def send(%__MODULE__{type: :dtls, sock: socket}, msg, _, _),
-    do: :ssl.send(socket, msg)
+  def send(%__MODULE__{type: :dtls, sock: socket}, msg, _, _) do
+    case :ssl.send(socket, msg) do
+      :ok ->
+        emit_telemetry(:message_sent, %{protocol: :dtls, bytes: byte_size(msg)}, %{})
+        :ok
+      {:error, reason} = error ->
+        emit_telemetry(:send_error, %{protocol: :dtls, error: reason}, %{})
+        Logger.warning("DTLS send failed: #{inspect(reason)}")
+        error
+    end
+  end
 
-  def send(%__MODULE__{type: :tls, sock: socket}, msg, _, _),
-    do: :ssl.send(socket, msg)
-
-  @doc """
-  Sends data to peer hooks
-  """
-  def send_to_peer_hooks(data) do
-    peer_hooks()
-    |> Enum.each(&GenServer.cast(&1, {:process_message, :peer, data}))
+  def send(%__MODULE__{type: :tls, sock: socket}, msg, _, _) do
+    case :ssl.send(socket, msg) do
+      :ok ->
+        emit_telemetry(:message_sent, %{protocol: :tls, bytes: byte_size(msg)}, %{})
+        :ok
+      {:error, reason} = error ->
+        emit_telemetry(:send_error, %{protocol: :tls, error: reason}, %{})
+        Logger.warning("TLS send failed: #{inspect(reason)}")
+        error
+    end
   end
 
   @doc """
-  Sends data to client hooks
+  Sends data to peer hooks with error handling
+  """
+  def send_to_peer_hooks(data) do
+    try do
+      peer_hooks()
+      |> Enum.each(&GenServer.cast(&1, {:process_message, :peer, data}))
+    rescue
+      error ->
+        Logger.warning("Failed to send to peer hooks: #{inspect(error)}")
+        emit_telemetry(:hook_error, %{type: :peer, error: inspect(error)}, %{})
+    end
+  end
+
+  @doc """
+  Sends data to client hooks with error handling
   """
   def send_to_client_hooks(data) do
-    client_hooks()
-    |> Enum.each(&GenServer.cast(&1, {:process_message, :client, data}))
+    try do
+      client_hooks()
+      |> Enum.each(&GenServer.cast(&1, {:process_message, :client, data}))
+    rescue
+      error ->
+        Logger.warning("Failed to send to client hooks: #{inspect(error)}")
+        emit_telemetry(:hook_error, %{type: :client, error: inspect(error)}, %{})
+    end
   end
 
   @doc """
@@ -190,33 +324,53 @@ defmodule Xirsys.Sockets.Socket do
       ])
 
   @doc """
-  Apply specific socket option for connection
+  Enhanced socket option setting with better error handling
   """
-  @spec set_sockopt(%__MODULE__{}, %__MODULE__{}) :: :ok
+  @spec set_sockopt(%__MODULE__{}, %__MODULE__{}) :: :ok | {:error, term()}
   def set_sockopt(%__MODULE__{type: type} = list_sock, %__MODULE__{type: type} = cli_socket)
       when type in [:tls, :dtls] do
-    try do
-      {:ok, opts} = getopts(list_sock)
-      setopts(cli_socket, opts)
-      :ok
-    rescue
-      e ->
-        Logger.error("damn #{inspect(e)}")
-        close(cli_socket)
+    case getopts(list_sock) do
+      {:ok, opts} ->
+        case setopts(cli_socket, opts) do
+          :ok ->
+            :ok
+          {:error, reason} = error ->
+            Logger.warning("Failed to set SSL socket options: #{inspect(reason)}")
+            emit_telemetry(:sockopt_error, %{protocol: type, error: reason}, %{})
+            close(cli_socket, reason)
+            error
+        end
+      {:error, reason} = error ->
+        Logger.warning("Failed to get SSL socket options: #{inspect(reason)}")
+        emit_telemetry(:sockopt_error, %{protocol: type, error: reason}, %{})
+        error
     end
   end
 
   def set_sockopt(%__MODULE__{type: :tcp} = list_sock, %__MODULE__{type: :tcp} = cli_socket) do
-    true = register_socket(cli_socket)
-
-    try do
-      {:ok, opts} = getopts(list_sock)
-      setopts(cli_socket, opts)
-      :ok
-    rescue
-      e ->
-        Logger.error("damn #{inspect(e)}")
-        close(cli_socket)
+    case register_socket(cli_socket) do
+      true ->
+        case getopts(list_sock) do
+          {:ok, opts} ->
+            case setopts(cli_socket, opts) do
+              :ok ->
+                :ok
+              {:error, reason} = error ->
+                Logger.warning("Failed to set TCP socket options: #{inspect(reason)}")
+                emit_telemetry(:sockopt_error, %{protocol: :tcp, error: reason}, %{})
+                close(cli_socket, reason)
+                error
+            end
+          {:error, reason} = error ->
+            Logger.warning("Failed to get TCP socket options: #{inspect(reason)}")
+            emit_telemetry(:sockopt_error, %{protocol: :tcp, error: reason}, %{})
+            error
+        end
+      false ->
+        error = {:error, :socket_registration_failed}
+        Logger.warning("Failed to register TCP socket")
+        emit_telemetry(:sockopt_error, %{protocol: :tcp, error: :registration_failed}, %{})
+        error
     end
   end
 
@@ -257,38 +411,60 @@ defmodule Xirsys.Sockets.Socket do
     do: :inet.port(sock)
 
   @doc """
-  Closes a socket of any type.s
+  Enhanced socket close with proper logging and cleanup
   """
   @spec close(t() | any(), any()) :: :ok
   def close(sock, reason \\ "")
 
   def close(%__MODULE__{type: :udp, sock: socket}, reason) do
     :gen_udp.close(socket)
-    Logger.debug("UDP listener closed: #{inspect(reason)}")
+    emit_telemetry(:socket_closed, %{protocol: :udp}, %{reason: reason})
+    Logger.debug("UDP socket closed: #{inspect(reason)}")
     :ok
   end
 
   def close(%__MODULE__{type: :tcp, sock: socket}, reason) do
     :gen_tcp.close(socket)
-    Logger.debug("UDP listener closed: #{inspect(reason)}")
+    emit_telemetry(:socket_closed, %{protocol: :tcp}, %{reason: reason})
+    Logger.debug("TCP socket closed: #{inspect(reason)}")
     :ok
   end
 
   def close(%__MODULE__{type: :dtls, sock: socket}, reason) do
     :ssl.close(socket)
-    Logger.debug("DTLS listener closed: #{inspect(reason)}")
+    emit_telemetry(:socket_closed, %{protocol: :dtls}, %{reason: reason})
+    Logger.debug("DTLS socket closed: #{inspect(reason)}")
     :ok
   end
 
   def close(%__MODULE__{type: :tls, sock: socket}, reason) do
     :ssl.close(socket)
-    Logger.debug("TLS listener closed: #{inspect(reason)}")
+    emit_telemetry(:socket_closed, %{protocol: :tls}, %{reason: reason})
+    Logger.debug("TLS socket closed: #{inspect(reason)}")
     :ok
   end
 
-  def close(_, _) do
-    Logger.debug("Caught attempted close of nil socket")
+  def close(_, reason) do
+    Logger.debug("Attempted to close nil socket: #{inspect(reason)}")
     :ok
+  end
+
+  @doc """
+  Emit telemetry events for monitoring TURN server performance
+  """
+  @spec emit_telemetry(atom(), map(), map()) :: :ok
+  def emit_telemetry(event_name, measurements, metadata) do
+    if get_config(:telemetry_enabled, true) do
+      :telemetry.execute(
+        [:xturn_sockets, event_name],
+        measurements,
+        metadata
+      )
+    end
+  rescue
+    _ ->
+      # Fail silently if telemetry is not available
+      :ok
   end
 
   # ----------------------------
