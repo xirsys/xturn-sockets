@@ -98,7 +98,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.get_config(:connection_timeout, 5000)
+      iex> Xirsys.Sockets.Socket.get_config(:connection_timeout, 5000)
       30000
 
   """
@@ -187,7 +187,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.check_rate_limit({192, 168, 1, 1})
+      iex> Xirsys.Sockets.Socket.check_rate_limit({192, 168, 1, 1})
       :ok
 
   """
@@ -243,8 +243,8 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.open_port({127, 0, 0, 1}, :random, [])
-      {:ok, %Socket{type: :udp, sock: #Port<...>}}
+      # Open a UDP socket (returns actual socket struct)
+      # Xirsys.Sockets.Socket.open_port({127, 0, 0, 1}, :random, [])
 
   """
   @spec open_port(ip_address(), policy(), socket_options()) :: {:ok, t()} | {:error, atom()}
@@ -289,8 +289,8 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.handshake(%Socket{type: :tcp, sock: listening_socket})
-      {:ok, %Socket{type: :tcp, sock: client_socket}}
+      # TCP handshake example (requires actual socket)
+      # {:ok, client_socket} = Socket.handshake(tcp_listening_socket)
 
   """
   @spec handshake(t()) :: {:ok, t()} | {:error, any()}
@@ -368,12 +368,10 @@ defmodule Xirsys.Sockets.Socket do
   ## Examples
 
       # UDP send
-      iex> Socket.send(udp_socket, "hello", {192, 168, 1, 1}, 5000)
-      :ok
+      # Socket.send(udp_socket, "hello", {192, 168, 1, 1}, 5000)
 
       # TCP send
-      iex> Socket.send(tcp_socket, "hello")
-      :ok
+      # Socket.send(tcp_socket, "hello")
 
   """
   @spec send(t(), binary(), ip_address() | nil, port_number() | nil) ::
@@ -461,7 +459,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.send_to_peer_hooks(%{message: "hello"})
+      iex> Xirsys.Sockets.Socket.send_to_peer_hooks(%{message: "hello"})
       :ok
 
   """
@@ -489,7 +487,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.send_to_client_hooks(%{message: "hello"})
+      iex> Xirsys.Sockets.Socket.send_to_client_hooks(%{message: "hello"})
       :ok
 
   """
@@ -523,8 +521,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.setopts(socket, [{:active, :once}, :binary])
-      :ok
+      # Socket.setopts(socket, [{:active, :once}, :binary])
 
   """
   @spec setopts(port() | t(), socket_options()) :: :ok | {:error, term()}
@@ -556,8 +553,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.getopts(socket)
-      {:ok, [active: :once, buffer: 65536]}
+      # {:ok, opts} = Socket.getopts(socket)
 
   """
   @spec getopts(t()) :: {:ok, socket_options()} | {:error, term()}
@@ -622,8 +618,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.set_sockopt(listener, client)
-      :ok
+      # Socket.set_sockopt(listening_socket, client_socket)
 
   """
   @spec set_sockopt(t(), t()) :: :ok | {:error, term()}
@@ -741,8 +736,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.sockname(socket)
-      {:ok, {{127, 0, 0, 1}, 8080}}
+      # {:ok, {ip, port}} = Socket.sockname(socket)
 
   """
   @spec sockname(t()) ::
@@ -776,8 +770,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.peername(socket)
-      {:ok, {{192, 168, 1, 100}, 45678}}
+      # {:ok, {ip, port}} = Socket.peername(socket)
 
   """
   @spec peername(t()) ::
@@ -808,8 +801,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.port(udp_socket)
-      {:ok, 8080}
+      # {:ok, port} = Socket.port(udp_socket)
 
   """
   @spec port(t()) :: {:ok, port_number()} | {:error, term()}
@@ -833,8 +825,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.close(socket, "connection_timeout")
-      :ok
+      # Socket.close(socket, "connection_timeout")
 
   """
   @spec close(t() | any(), any()) :: :ok
@@ -902,7 +893,7 @@ defmodule Xirsys.Sockets.Socket do
 
   ## Examples
 
-      iex> Socket.emit_telemetry(:connection_opened, %{count: 1}, %{ip: {127, 0, 0, 1}})
+      iex> Xirsys.Sockets.Socket.emit_telemetry(:connection_opened, %{count: 1}, %{ip: {127, 0, 0, 1}})
       :ok
 
   """
