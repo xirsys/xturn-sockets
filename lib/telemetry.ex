@@ -68,7 +68,17 @@ defmodule Xirsys.Sockets.Telemetry do
 
       # Listener events
       {[:xturn_sockets, :udp_listener_started], &handle_listener_started/4},
-      {[:xturn_sockets, :tcp_listener_started], &handle_listener_started/4}
+      {[:xturn_sockets, :tcp_listener_started], &handle_listener_started/4},
+      {[:xturn_sockets, :sctp_listener_started], &handle_listener_started/4},
+
+      # SCTP-specific events
+      {[:xturn_sockets, :sctp_connection_established], &handle_sctp_connection/4},
+      {[:xturn_sockets, :sctp_connection_closed], &handle_sctp_connection/4},
+      {[:xturn_sockets, :sctp_message_received], &handle_sctp_message/4},
+      {[:xturn_sockets, :sctp_packet_too_large], &handle_sctp_packet_large/4},
+      {[:xturn_sockets, :sctp_rate_limit_exceeded], &handle_rate_limit/4},
+      {[:xturn_sockets, :sctp_connection_limit_exceeded], &handle_connection_limit/4},
+      {[:xturn_sockets, :sctp_connections_cleaned], &handle_cleanup/4}
     ]
 
     Enum.each(handlers, fn {event, handler} ->
@@ -102,12 +112,18 @@ defmodule Xirsys.Sockets.Telemetry do
       total_connections: get_counter(:total_connections),
       active_udp_connections: get_counter(:active_udp_connections),
       active_tcp_connections: get_counter(:active_tcp_connections),
+      active_sctp_connections: get_counter(:sctp_connections),
       bytes_sent: get_counter(:bytes_sent),
       bytes_received: get_counter(:bytes_received),
       rate_limit_hits: get_counter(:rate_limit_hits),
       ssl_handshake_successes: get_counter(:ssl_handshake_successes),
       ssl_handshake_errors: get_counter(:ssl_handshake_errors),
       send_errors: get_counter(:send_errors),
+      # SCTP-specific metrics
+      sctp_messages_received: get_counter(:sctp_messages_received),
+      sctp_bytes_received: get_counter(:sctp_bytes_received),
+      sctp_multistream_messages: get_counter(:sctp_multistream_messages),
+      sctp_oversized_packets: get_counter(:sctp_oversized_packets),
       last_updated: System.system_time(:second)
     }
   end
@@ -229,6 +245,41 @@ defmodule Xirsys.Sockets.Telemetry do
     Logger.info("#{listener_type} listener started at #{inspect(ip)}:#{port}")
 
     increment_counter(:listeners_started)
+  end
+
+  # SCTP-specific event handlers
+
+  defp handle_sctp_connection(_name, _measurements, metadata, _config) do
+    ip = Map.get(metadata, :ip, "unknown")
+    increment_counter(:sctp_connections)
+
+    Logger.debug("SCTP connection event for IP: #{inspect(ip)}")
+  end
+
+  defp handle_sctp_message(_name, measurements, metadata, _config) do
+    bytes = Map.get(measurements, :bytes, 0)
+    stream_id = Map.get(measurements, :stream_id, 0)
+    ppid = Map.get(measurements, :ppid, 0)
+
+    increment_counter(:sctp_messages_received)
+    increment_counter(:sctp_bytes_received, bytes)
+
+    # Track multi-stream usage
+    if stream_id > 0 do
+      increment_counter(:sctp_multistream_messages)
+    end
+
+    Logger.debug("SCTP message: #{bytes} bytes, stream #{stream_id}, ppid #{ppid}", metadata)
+  end
+
+  defp handle_sctp_packet_large(_name, measurements, metadata, _config) do
+    bytes = Map.get(measurements, :bytes, 0)
+    ip = Map.get(metadata, :ip, "unknown")
+    port = Map.get(metadata, :port, "unknown")
+
+    increment_counter(:sctp_oversized_packets)
+
+    Logger.warning("SCTP packet too large: #{bytes} bytes from #{inspect(ip)}:#{port}")
   end
 
   # Counter management using persistent_term for performance

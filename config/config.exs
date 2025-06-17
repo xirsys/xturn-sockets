@@ -9,6 +9,7 @@ config :xturn_sockets,
   ssl_handshake_timeout: 10_000,  # 10 seconds
   max_connections_per_ip: 100,
   max_tcp_connections: 1000,
+  max_sctp_connections: 1000,
 
   # Rate Limiting (for DDoS protection)
   rate_limit_enabled: true,
@@ -28,6 +29,17 @@ config :xturn_sockets,
     {:fail_if_no_peer_cert, false},  # TURN allows anonymous clients
     {:verify, :verify_none}  # TURN handles verification at app level
   ],
+
+  # SCTP-specific Settings
+  sctp_nodelay: true,
+  sctp_autoclose: 0,  # Disable auto-close for persistent connections
+  sctp_maxseg: 1400,  # Maximum segment size
+  sctp_streams: %{
+    num_ostreams: 10,    # Number of outbound streams
+    max_instreams: 10,   # Maximum inbound streams
+    max_attempts: 4,     # Connection attempts
+    max_init_timeo: 30_000  # Initialization timeout
+  },
 
   # Monitoring & Telemetry
   telemetry_enabled: true,
