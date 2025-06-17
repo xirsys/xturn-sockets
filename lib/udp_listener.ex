@@ -56,9 +56,6 @@ defmodule Xirsys.Sockets.Listener.UDP do
     open_socket(cb, ip, port, ssl, opts)
   end
 
-  @doc """
-  Initialises connection with IPv4 address
-  """
   def init([cb, {_, _, _, _} = ip, port, ssl]) do
     opts = @opts ++ [ip: ip] ++ [:binary]
     open_socket(cb, ip, port, ssl, opts)
@@ -134,28 +131,67 @@ defmodule Xirsys.Sockets.Listener.UDP do
   end
 
   defp open_socket(cb, ip, port, ssl, opts) do
-    Logger.info("UDP listener #{inspect(self())} started at [#{:inet_parse.ntoa(ip)}:#{port}]")
-
-    with true <- valid_ip?(ip) do
+    unless valid_ip?(ip) do
+      {:error, :invalid_ip_address}
+    else
       case ssl do
-        true ->
-          {:ok, certs} = :application.get_env(:certs)
-          nopts = opts ++ certs ++ [protocol: :dtls]
-          {:ok, fd} = :ssl.listen(port, nopts)
-          fd = %Socket{type: :dtls, sock: fd}
-          Xirsys.Sockets.Client.create(fd, cb, ssl)
-          {:ok, %{listener: fd, ssl: ssl}}
+        {:ssl, true} ->
+          case :application.get_env(:certs) do
+            {:ok, certs} ->
+              nopts = opts ++ certs ++ [protocol: :dtls]
+
+              case :ssl.listen(port, nopts) do
+                {:ok, fd} ->
+                  fd = %Socket{type: :dtls, sock: fd}
+
+                  try do
+                    Xirsys.Sockets.Client.create(fd, cb, ssl)
+                  catch
+                    :exit, _reason ->
+                      # Supervisor not available, continue without client process
+                      Logger.debug("Supervisor not available, continuing without client process")
+                  end
+
+                  case resolve_addr(fd, ip, port) do
+                    {:ok, {nip, nport}} ->
+                      Logger.info(
+                        "UDP listener #{inspect(self())} started at [#{:inet_parse.ntoa(nip)}:#{nport}]"
+                      )
+
+                      {:ok, %{listener: fd, ssl: ssl}}
+
+                    error ->
+                      error
+                  end
+
+                error ->
+                  error
+              end
+
+            :undefined ->
+              {:error, :no_certificates_configured}
+          end
 
         _ ->
           {:ok, fd} = :gen_udp.open(port, opts)
+          {:ok, {nip, nport}} = resolve_addr(fd, ip, port)
+
+          Logger.info(
+            "UDP listener #{inspect(self())} started at [#{:inet_parse.ntoa(nip)}:#{nport}]"
+          )
+
           {:ok, %{socket: %Socket{type: :udp, sock: fd}, callback: cb, ssl: ssl}, 0}
       end
-    else
-      false -> {:error, :invalid_ip_address}
-      e -> e
+    end
+  end
+
+  defp resolve_addr(fd, ip, port) do
+    case :inet.sockname(fd) do
+      {:ok, {_, _}} = addr -> addr
+      _ -> {:ok, {ip, port}}
     end
   end
 
   defp valid_ip?(ip),
-    do: Enum.reduce(Tuple.to_list(ip), true, &(is_integer(&1) and &1 >= 0 and &1 < 65535 and &2))
+    do: Enum.reduce(Tuple.to_list(ip), true, &(is_integer(&1) and &1 >= 0 and &1 <= 255 and &2))
 end

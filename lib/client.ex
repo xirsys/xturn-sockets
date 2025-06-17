@@ -59,7 +59,8 @@ defmodule Xirsys.Sockets.Client do
        cli_socket: nil,
        addr: nil,
        buffer: <<>>,
-       ssl: ssl
+       ssl: ssl,
+       cache: %{}
      }, 0}
   end
 
@@ -112,11 +113,16 @@ defmodule Xirsys.Sockets.Client do
   end
 
   @doc """
-  Message handler for incoming packets
+  Message handler to update cache
   """
+  def handle_info({:cache, cache}, state) do
+    {:noreply, %{state | :cache => cache}}
+  end
+
   def handle_info(
         {_, _client, data},
-        %{cli_socket: socket, addr: {{fip, fport}, {_, tport}}, buffer: buffer} = state
+        %{cli_socket: socket, addr: {{fip, fport}, {_, tport}}, buffer: buffer, cache: cache} =
+          state
       ) do
     Logger.debug("handle_info tcp")
 
@@ -136,7 +142,8 @@ defmodule Xirsys.Sockets.Client do
               client_ip: fip,
               client_port: fport,
               server_ip: Socket.server_ip(),
-              server_port: tport
+              server_port: tport,
+              cache: cache
             }
 
             state.callback.dispatch(conn)

@@ -64,9 +64,6 @@ defmodule Xirsys.Sockets.Listener.TCP do
     open_socket(cb, ip, port, ssl, opts)
   end
 
-  @doc """
-  Initialises connection with IPv4 address
-  """
   def init([cb, {_, _, _, _} = ip, port, ssl]) do
     opts = @opts ++ [ip: ip] ++ [:binary]
     open_socket(cb, ip, port, ssl, opts)
@@ -87,27 +84,50 @@ defmodule Xirsys.Sockets.Listener.TCP do
 
   defp open_socket(cb, ip, port, ssl, opts) do
     with true <- valid_ip?(ip) do
-      {:ok, socket} =
+      socket_result =
         case ssl do
           true ->
-            {:ok, certs} = :application.get_env(:certs)
-            nopts = opts ++ certs
-            {:ok, sock} = :ssl.listen(port, nopts)
-            {:ok, %Socket{type: :tls, sock: sock}}
+            case :application.get_env(:certs) do
+              {:ok, certs} ->
+                nopts = opts ++ certs
+
+                case :ssl.listen(port, nopts) do
+                  {:ok, sock} -> {:ok, %Socket{type: :tls, sock: sock}}
+                  error -> error
+                end
+
+              :undefined ->
+                {:error, :no_certificates_configured}
+            end
 
           _ ->
-            {:ok, sock} = :gen_tcp.listen(port, opts)
-            {:ok, %Socket{type: :tcp, sock: sock}}
+            case :gen_tcp.listen(port, opts) do
+              {:ok, sock} -> {:ok, %Socket{type: :tcp, sock: sock}}
+              error -> error
+            end
         end
 
-      Xirsys.Sockets.Client.create(socket, cb, ssl)
-      Logger.info("TCP listener started at [#{:inet_parse.ntoa(ip)}:#{port}]")
-      {:ok, %{listener: socket, ssl: ssl}}
+      case socket_result do
+        {:ok, socket} ->
+          try do
+            Xirsys.Sockets.Client.create(socket, cb, ssl)
+          catch
+            :exit, _reason ->
+              # Supervisor not available, continue without client process
+              Logger.debug("Supervisor not available, continuing without client process")
+          end
+
+          Logger.info("TCP listener started at [#{:inet_parse.ntoa(ip)}:#{port}]")
+          {:ok, %{listener: socket, ssl: ssl}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     else
       _ -> {:error, :invalid_ip_address}
     end
   end
 
   defp valid_ip?(ip),
-    do: Enum.reduce(Tuple.to_list(ip), true, &(is_integer(&1) and &1 >= 0 and &1 < 65535 and &2))
+    do: Enum.reduce(Tuple.to_list(ip), true, &(is_integer(&1) and &1 >= 0 and &1 <= 255 and &2))
 end

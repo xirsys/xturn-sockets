@@ -42,7 +42,8 @@ defmodule Xirsys.Sockets.Conn do
           is_control :: boolean(),
           force_auth :: boolean(),
           response :: Response.t(),
-          halt :: boolean()
+          halt :: boolean(),
+          cache :: map()
         }
 
   defstruct listener: nil,
@@ -56,7 +57,8 @@ defmodule Xirsys.Sockets.Conn do
             is_control: false,
             force_auth: false,
             response: nil,
-            halt: nil
+            halt: nil,
+            cache: nil
 
   @doc """
   Flags a connection object as halted, so it
