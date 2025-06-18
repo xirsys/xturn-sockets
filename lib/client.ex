@@ -24,7 +24,46 @@
 
 defmodule Xirsys.Sockets.Client do
   @moduledoc """
-  TCP protocol socket client
+  TCP protocol socket client for TURN server usage.
+
+  Handles TCP connections with buffering and provides 5-tuple information
+  to callbacks for proper STUN/TURN protocol processing.
+
+    ## Callback Interface
+
+  Your callback module must implement:
+
+      def process_buffer(data, client_ip, client_port, server_ip, server_port)
+
+  Where:
+  - `data` - Binary data from TCP stream (may be partial packets)
+  - `client_ip` - Client IP address tuple
+  - `client_port` - Client port number
+  - `server_ip` - Server IP address tuple
+  - `server_port` - Server port number
+
+  The function should return `{parsed_packet, remaining_buffer}` where:
+  - `parsed_packet` - Complete packet ready for processing (or `nil` if incomplete)
+  - `remaining_buffer` - Any remaining unparsed data
+
+  The 5-tuple information is essential for STUN/TURN over TCP (RFC 5389, RFC 5766).
+
+  ## Example
+
+      defmodule MyTCPHandler do
+        def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+          case parse_stun_packet(data, client_ip, client_port, server_ip, server_port) do
+            {:ok, packet, rest} -> {packet, rest}
+            {:partial, _} -> {nil, data}  # Wait for more data
+          end
+        end
+
+        def dispatch(conn) do
+          # Process complete STUN/TURN packet
+          handle_packet(conn.message, conn)
+        end
+      end
+
   """
   use GenServer
   require Logger
@@ -130,7 +169,7 @@ defmodule Xirsys.Sockets.Client do
       Logger.debug("TCP called from #{inspect(ip_port)} with #{inspect(byte_size(data))} BYTES")
 
       buffer =
-        case state.callback.process_buffer(<<buffer::binary, data::binary>>) do
+        case state.callback.process_buffer(<<buffer::binary, data::binary>>, fip, fport, Socket.server_ip(), tport) do
           {nil, buffer} ->
             buffer
 

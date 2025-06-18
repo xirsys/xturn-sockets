@@ -24,8 +24,54 @@
 
 defmodule Xirsys.Sockets.Listener.UDP do
   @moduledoc """
-  Enhanced UDP protocol socket handler optimized for TURN server usage
-  Includes rate limiting, connection tracking, and robust error handling
+  Enhanced UDP protocol socket handler optimized for TURN server usage.
+
+  Includes rate limiting, connection tracking, and robust error handling.
+  Designed specifically for STUN/TURN protocols (RFC 5389, RFC 5766) which
+  require 5-tuple information for proper operation.
+
+      ## Callback Interface
+
+  Your callback module must implement:
+
+      def process_buffer(data, client_ip, client_port, server_ip, server_port)
+
+  Where:
+  - `data` - Binary packet data received
+  - `client_ip` - Client IP address tuple
+  - `client_port` - Client port number
+  - `server_ip` - Server IP address tuple
+  - `server_port` - Server port number
+
+  And:
+
+      def dispatch(conn)
+
+  Where:
+  - `conn` - `%Xirsys.Sockets.Conn{}` struct with parsed message and connection info
+
+  The 5-tuple information during `process_buffer` is essential for:
+  - STUN XOR-MAPPED-ADDRESS responses (RFC 5389)
+  - TURN allocation and permission management (RFC 5766)
+  - Proper WebRTC compatibility
+
+  ## Example
+
+      defmodule MySTUNHandler do
+        def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+          # Parse STUN/TURN packet with full connection context
+          case parse_stun_packet(data, client_ip, client_port, server_ip, server_port) do
+            {:ok, packet} -> {packet, <<>>}
+            {:error, _} -> {nil, <<>>}
+          end
+        end
+
+        def dispatch(conn) do
+          # Handle processed STUN/TURN message
+          send_stun_response(conn)
+        end
+      end
+
   """
   use GenServer
   require Logger
@@ -244,8 +290,8 @@ defmodule Xirsys.Sockets.Listener.UDP do
     # Get socket name for response
     case Socket.sockname(socket) do
       {:ok, {_, tport}} ->
-        # Process the packet
-        case callback.process_buffer(msg) do
+        # Process the packet with 5-tuple information for STUN/TURN protocols
+        case callback.process_buffer(msg, fip, fport, Socket.server_ip(), tport) do
           {packet, _} when not is_nil(packet) ->
             conn = %Conn{
               message: packet,

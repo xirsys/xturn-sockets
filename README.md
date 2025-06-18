@@ -88,8 +88,9 @@ alias Xirsys.Sockets.Socket
 
 ```elixir
 defmodule MyUDPHandler do
-  def process_buffer(data) do
-    # Process incoming data
+  def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+    # Process incoming data with full 5-tuple information for STUN/TURN protocols
+    # This is essential for RFC 5389 (STUN) and RFC 5766 (TURN) compliance
     {data, <<>>}  # Return {processed_data, remaining_buffer}
   end
 
@@ -112,9 +113,14 @@ end
 
 ```elixir
 defmodule MyTCPHandler do
-  def handle_message(socket, data, _from_ip, _from_port, _metadata) do
-    # Echo the message back
-    Socket.send(socket, data)
+  def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+    # Process TCP data with 5-tuple information
+    {data, <<>>}  # Return {processed_data, remaining_buffer}
+  end
+
+  def dispatch(conn) do
+    # Handle the processed connection
+    Socket.send(conn.client_socket, "Echo: #{conn.message}")
     :ok
   end
 end
@@ -143,15 +149,21 @@ end
 
 ```elixir
 defmodule MySCTPHandler do
-  def handle_message(socket, data, from_ip, from_port, metadata) do
-    stream_id = metadata[:stream_id] || 0
-    ppid = metadata[:ppid] || 0
+  def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+    # Process SCTP data with 5-tuple information
+    {data, <<>>}  # Return {processed_data, remaining_buffer}
+  end
+
+  def dispatch(conn) do
+    # Handle the processed SCTP connection with metadata
+    stream_id = conn.metadata[:stream_id] || 0
+    ppid = conn.metadata[:ppid] || 0
 
     IO.puts "SCTP message on stream #{stream_id}, PPID #{ppid}"
-    IO.puts "Data: #{inspect(data)}"
+    IO.puts "Data: #{inspect(conn.message)}"
 
     # Echo back on the same stream
-    Socket.send(socket, "Echo: #{data}")
+    Socket.send(conn.client_socket, "Echo: #{conn.message}")
     :ok
   end
 end
@@ -239,6 +251,59 @@ health = Xirsys.Sockets.Telemetry.health_status()
   %{}
 )
 ```
+
+## 🔧 Callback Interface
+
+### **IMPORTANT: 5-Tuple Interface for STUN/TURN**
+
+All callback modules **must** implement the following interface:
+
+```elixir
+def process_buffer(data, client_ip, client_port, server_ip, server_port)
+```
+
+This interface provides the complete 5-tuple information required by:
+
+- **RFC 5389 (STUN)**: For XOR-MAPPED-ADDRESS responses
+- **RFC 5766 (TURN)**: For allocation and permission management
+- **WebRTC compatibility**: Proper NAT traversal responses
+
+### **Why 5-Tuple is Critical**
+
+STUN/TURN protocols require the complete connection context:
+
+```elixir
+defmodule MySTUNHandler do
+  def process_buffer(data, client_ip, client_port, server_ip, server_port) do
+    case STUNPacket.parse(data) do
+      {:binding_request, transaction_id} ->
+        # Build XOR-MAPPED-ADDRESS using client IP/port
+        response = STUNPacket.binding_response(
+          transaction_id,
+          client_ip,
+          client_port,
+          server_ip,  # Required for XOR calculation
+          server_port
+        )
+        {response, <<>>}
+
+      _ -> {nil, <<>>}
+    end
+  end
+
+  def dispatch(conn) do
+    # Send response back to client
+    Socket.send(conn.client_socket, conn.message, conn.client_ip, conn.client_port)
+  end
+end
+```
+
+### **Return Format**
+
+The `process_buffer/5` function must return:
+
+- `{packet, remaining_buffer}` - Complete packet with any remaining data
+- `{nil, buffer}` - Incomplete packet, wait for more data
 
 ## 🏗️ Architecture
 
